@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Electron Escape — Săn Electron</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    min-height: 100vh;
+    background: radial-gradient(ellipse at 50% -10%, #2a1a55 0%, #100a24 60%);
+    color: #fff;
+    font-family: "Poppins", -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 22px 14px 50px;
+  }
+  .app { width: 100%; max-width: 460px; }
+
+  .header { text-align: center; margin-bottom: 16px; }
+  .title { font-size: 1.5rem; font-weight: 800; margin-bottom: 6px; }
+  .sub { font-size: 0.86rem; color: #cdc3ef; line-height: 1.5; max-width: 34ch; margin: 0 auto 12px; }
+  .timer {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    font-weight: 700;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .timer.urgent { background: rgba(255,80,80,0.2); border-color: #ff6b6b; color: #ffb3b3; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+  /* ---------- Puzzle board ---------- */
+  .puzzle-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 5 / 2;
+    max-width: 420px;
+    margin: 18px auto 10px;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: #1a1238;
+  }
+  .puzzle-wrap svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .piece-cover {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 20%;
+    background: #150c2e;
+    border-right: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: rgba(255,255,255,0.28);
+    transition: opacity .6s ease, transform .6s ease;
+  }
+  .piece-cover:nth-child(2) { left: 0%; }
+  .piece-cover:nth-child(3) { left: 20%; }
+  .piece-cover:nth-child(4) { left: 40%; }
+  .piece-cover:nth-child(5) { left: 60%; }
+  .piece-cover:nth-child(6) { left: 80%; }
+  .piece-cover:last-child { border-right: none; }
+  .piece-cover.revealed {
+    opacity: 0;
+    transform: scale(1.15);
+    pointer-events: none;
+  }
+  .puzzle-caption {
+    text-align: center;
+    font-size: 0.82rem;
+    color: #b9a9f5;
+    margin-bottom: 20px;
+  }
+
+  /* ---------- Arena ---------- */
+  .arena-label {
+    font-size: 0.78rem;
+    color: #b9a9f5;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .arena {
+    position: relative;
+    width: 100%;
+    height: 250px;
+    border-radius: 18px;
+    background: linear-gradient(160deg, #211144, #341a5e 60%, #1c0f38);
+    border: 1px solid rgba(255,255,255,0.12);
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .arena::before {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 20% 30%, rgba(255,255,255,0.06), transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(255,255,255,0.05), transparent 45%);
+  }
+  .electron {
+    position: absolute;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, #dbe9ff, #4f8dff 70%);
+    box-shadow: 0 0 18px rgba(79,141,255,0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 0.95rem;
+    color: #14213d;
+    cursor: pointer;
+    border: none;
+    z-index: 2;
+  }
+  .electron span { pointer-events: none; }
+  .electron.caught {
+    animation: pop-out .4s ease forwards;
+  }
+  @keyframes pop-out {
+    to { transform: scale(0); opacity: 0; }
+  }
+  .arena-empty-msg {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    color: #cdc3ef;
+    font-size: 0.95rem;
+    text-align: center;
+    padding: 20px;
+  }
+  .arena.empty .arena-empty-msg { display: flex; }
+
+  .status-text {
+    text-align: center;
+    font-size: 0.85rem;
+    color: #cdc3ef;
+    min-height: 1.2em;
+    margin-bottom: 4px;
+  }
+
+  /* ---------- Modal ---------- */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(8,4,20,0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 40;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s;
+  }
+  .modal-backdrop.show { opacity: 1; pointer-events: auto; }
+  .modal-panel {
+    background: #1c1440;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 18px;
+    padding: 22px 20px 18px;
+    width: 100%;
+    max-width: 380px;
+    transform: translateY(14px);
+    transition: transform .2s;
+  }
+  .modal-backdrop.show .modal-panel { transform: translateY(0); }
+
+  .modal-cat { font-size: 0.78rem; color: #b9a9f5; margin-bottom: 8px; }
+  .modal-q { font-size: 1.02rem; font-weight: 700; line-height: 1.5; margin-bottom: 16px; }
+  .modal-choices { display: flex; flex-direction: column; gap: 10px; margin-bottom: 6px; }
+  .modal-choice {
+    display: flex;
+    gap: 10px;
+    text-align: left;
+    padding: 11px 13px;
+    border-radius: 10px;
+    border: 1.5px solid rgba(255,255,255,0.22);
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.92rem;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .modal-choice .letter { font-weight: 800; opacity: 0.8; min-width: 1.2em; }
+  .modal-choice:hover:not(:disabled) { background: rgba(255,255,255,0.13); }
+  .modal-choice:disabled { cursor: default; }
+  .modal-choice.correct { border-color: #6ee7b7; background: rgba(110,231,183,0.22); }
+  .modal-choice.wrong { border-color: #ff8a8a; background: rgba(255,138,138,0.22); }
+
+  .modal-feedback { min-height: 1.3em; font-size: 0.88rem; font-weight: 600; margin: 8px 0 4px; }
+  .modal-feedback.ok { color: #6ee7b7; }
+  .modal-feedback.bad { color: #ff9c9c; }
+
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+  .m-btn {
+    padding: 9px 18px;
+    border-radius: 8px;
+    border: none;
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .m-btn.primary { background: #ffd166; color: #3a2a06; opacity: 0; pointer-events: none; transition: opacity .15s; }
+  .m-btn.primary.show { opacity: 1; pointer-events: auto; }
+  .m-btn.ghost { background: transparent; color: #b9a9f5; border: 1px solid rgba(255,255,255,0.25); }
+  .m-btn.ghost:hover { color: #fff; }
+
+  /* ---------- Win screen ---------- */
+  .win-screen {
+    text-align: center;
+    padding: 10px 6px 30px;
+  }
+  .win-screen .big { font-size: 2.6rem; margin-bottom: 8px; }
+  .win-screen p { color: #cdc3ef; max-width: 34ch; margin: 0 auto 22px; line-height: 1.5; }
+  .lose-screen .big { color: #ff9c9c; }
+  .replay-btn {
+    padding: 12px 28px;
+    border-radius: 26px;
+    border: none;
+    background: #ffd166;
+    color: #3a2a06;
+    font-weight: 800;
+    font-size: 0.96rem;
+    cursor: pointer;
+  }
+  .replay-btn:hover { filter: brightness(1.05); }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="header">
+    <h1 class="title">ELECTRON ESCAPE</h1>
+    <p class="sub">Bấm vào electron (e⁻) đang chuyển động trong đấu trường. Trả lời đúng để nhận 1 mảnh ghép — đủ 5 mảnh trong 5 phút sẽ chiến thắng!</p>
+    <div class="timer" id="timerDisplay">⏱ 5:00</div>
+  </div>
+
+  <div class="puzzle-wrap" id="puzzleWrap">
+    <svg viewBox="0 0 500 200" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#ff6fa5"/>
+          <stop offset="30%" stop-color="#7b4fe0"/>
+          <stop offset="65%" stop-color="#33c9d0"/>
+          <stop offset="100%" stop-color="#ffcf4d"/>
+        </linearGradient>
+        <radialGradient id="ionGrad" cx="35%" cy="30%" r="70%">
+          <stop offset="0%" stop-color="#fff7d6"/>
+          <stop offset="100%" stop-color="#ffb347"/>
+        </radialGradient>
+        <radialGradient id="eGrad" cx="35%" cy="30%" r="70%">
+          <stop offset="0%" stop-color="#e6f0ff"/>
+          <stop offset="100%" stop-color="#4f8dff"/>
+        </radialGradient>
+      </defs>
+      <rect width="500" height="200" fill="url(#bgGrad)"/>
+      <circle cx="120" cy="60" r="26" fill="rgba(255,255,255,0.18)"/>
+      <circle cx="360" cy="150" r="40" fill="rgba(255,255,255,0.12)"/>
+      <circle cx="250" cy="100" r="34" fill="url(#ionGrad)"/>
+      <circle cx="140" cy="50" r="14" fill="url(#eGrad)"/>
+      <circle cx="380" cy="55" r="14" fill="url(#eGrad)"/>
+      <circle cx="90" cy="150" r="14" fill="url(#eGrad)"/>
+      <circle cx="410" cy="150" r="14" fill="url(#eGrad)"/>
+      <circle cx="250" cy="30" r="10" fill="#fff" opacity="0.8"/>
+      <path d="M250 14 L253 24 L263 24 L255 30 L258 40 L250 34 L242 40 L245 30 L237 24 L247 24 Z" fill="#fff" opacity="0.9"/>
+    </svg>
+    <div class="piece-cover" data-piece="0">1</div>
+    <div class="piece-cover" data-piece="1">2</div>
+    <div class="piece-cover" data-piece="2">3</div>
+    <div class="piece-cover" data-piece="3">4</div>
+    <div class="piece-cover" data-piece="4">5</div>
+  </div>
+  <p class="puzzle-caption" id="puzzleCaption">Mảnh ghép: 0 / 5</p>
+
+  <div id="gamePlay">
+    <p class="arena-label">ĐẤU TRƯỜNG ELECTRON</p>
+    <div class="arena" id="arena">
+      <div class="arena-empty-msg">Tất cả electron đã được thu phục!</div>
+    </div>
+    <p class="status-text" id="statusText">Chạm vào một electron để bắt đầu câu hỏi.</p>
+  </div>
+
+  <div class="win-screen hidden" id="winScreen">
+    <p class="big">🏆</p>
+    <p><strong>Hoàn thành bộ ghép hình!</strong><br>Bạn đã thu phục đủ 5 electron và khôi phục mạng tinh thể kim loại.</p>
+    <button class="replay-btn" id="replayBtn">Chơi lại</button>
+  </div>
+
+  <div class="win-screen lose-screen hidden" id="loseScreen">
+    <p class="big">⏰</p>
+    <p><strong>Hết giờ rồi!</strong><br>Bạn chưa khôi phục đủ mảnh ghép trong 5 phút. Thử lại nhé!</p>
+    <button class="replay-btn" id="replayBtnLose">Chơi lại</button>
+  </div>
+
+</div>
+
+<!-- Modal -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal-panel">
+    <div class="modal-cat" id="modalCat"></div>
+    <p class="modal-q" id="modalQ"></p>
+    <div class="modal-choices" id="modalChoices"></div>
+    <div class="modal-feedback" id="modalFeedback"></div>
+    <div class="modal-actions">
+      <button class="m-btn ghost" id="modalClose">Đóng</button>
+      <button class="m-btn primary" id="modalNext">Nhận mảnh ghép</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const QUESTIONS = [
+  {
+    cat: 'Câu 1 · Liên kết kim loại',
+    q: 'Trong mạng tinh thể kim loại, liên kết kim loại hình thành là do:',
+    choices: [
+      'sự góp chung electron của các nguyên tử kim loại cạnh nhau.',
+      'lực hút tĩnh điện giữa các electron hóa trị ở các nút mạng với các ion dương kim loại chuyển động tự do.',
+      'lực hút tĩnh điện giữa các electron hóa trị tự do với các ion dương kim loại chuyển động tự do trong toàn bộ mạng tinh thể.',
+      'lực hút tĩnh điện giữa các electron hóa trị tự do với các ion dương kim loại ở các nút mạng.'
+    ],
+    answer: 3
+  },
+  {
+    cat: 'Câu 2 · Trạng thái kim loại',
+    q: 'Ở nhiệt độ phòng, hầu hết các đơn chất kim loại có trạng thái nào sau đây?',
+    choices: ['Khí', 'Lỏng', 'Rắn', 'Plasma'],
+    answer: 2
+  },
+  {
+    cat: 'Câu 3 · Kim loại đặc biệt',
+    q: 'Kim loại nào sau đây là kim loại lỏng ở nhiệt độ phòng?',
+    choices: ['Fe', 'Cu', 'Hg', 'Al'],
+    answer: 2
+  },
+  {
+    cat: 'Câu 4 · Tính chất hoá học',
+    q: 'Nguyên tử kim loại khi tham gia phản ứng hoá học có tính chất nào sau đây?',
+    choices: [
+      'Nhường electron và tạo thành ion âm.',
+      'Nhường electron và tạo thành ion dương.',
+      'Nhường electron để trở thành ion âm.',
+      'Nhường electron để trở thành ion dương.'
+    ],
+    answer: 3
+  },
+  {
+    cat: 'Câu 5 · Mạng tinh thể',
+    q: 'Một trong những kiểu mạng tinh thể phổ biến của kim loại là:',
+    choices: ['Mạng lập phương tâm khối', 'Mạng phân tử', 'Mạng nguyên tử', 'Mạng ion đơn'],
+    answer: 0
+  }
+];
+
+const arena = document.getElementById('arena');
+const statusText = document.getElementById('statusText');
+const puzzleCaption = document.getElementById('puzzleCaption');
+const winScreen = document.getElementById('winScreen');
+const loseScreen = document.getElementById('loseScreen');
+const gamePlay = document.getElementById('gamePlay');
+const puzzleWrap = document.getElementById('puzzleWrap');
+const replayBtn = document.getElementById('replayBtn');
+const replayBtnLose = document.getElementById('replayBtnLose');
+const timerDisplay = document.getElementById('timerDisplay');
+
+/* ---------- Sound effects (Web Audio, no files needed) ---------- */
+let audioCtx = null;
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function beep(freq, start, dur, type = 'sine', vol = 0.18) {
+  const ctx = getCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0, ctx.currentTime + start);
+  gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + start + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(ctx.currentTime + start);
+  osc.stop(ctx.currentTime + start + dur + 0.02);
+}
+function playCorrect() { beep(523, 0, 0.12, 'sine'); beep(784, 0.1, 0.18, 'sine'); }
+function playWrong() { beep(180, 0, 0.22, 'sawtooth', 0.15); }
+function playTick() { beep(880, 0, 0.06, 'square', 0.08); }
+function playWin() {
+  [523, 659, 784, 1046].forEach((f, i) => beep(f, i * 0.13, 0.22, 'sine'));
+}
+function playLose() {
+  [392, 349, 293, 220].forEach((f, i) => beep(f, i * 0.16, 0.26, 'triangle', 0.15));
+}
+
+const modalBackdrop = document.getElementById('modalBackdrop');
+const modalCat = document.getElementById('modalCat');
+const modalQ = document.getElementById('modalQ');
+const modalChoices = document.getElementById('modalChoices');
+const modalFeedback = document.getElementById('modalFeedback');
+const modalClose = document.getElementById('modalClose');
+const modalNext = document.getElementById('modalNext');
+
+let electrons = [];
+let piecesCollected = 0;
+let activeIndex = null;
+let pendingCorrect = false;
+let rafId = null;
+let timeLeft = 300; // 5 phút
+let timerId = null;
+let gameOver = false;
+
+function formatTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
+function startTimer() {
+  clearInterval(timerId);
+  timeLeft = 300;
+  timerDisplay.textContent = `⏱ ${formatTime(timeLeft)}`;
+  timerDisplay.classList.remove('urgent');
+  timerId = setInterval(() => {
+    timeLeft--;
+    timerDisplay.textContent = `⏱ ${formatTime(timeLeft)}`;
+    if (timeLeft <= 30) {
+      timerDisplay.classList.add('urgent');
+      if (timeLeft > 0) playTick();
+    }
+    if (timeLeft <= 0) {
+      clearInterval(timerId);
+      handleTimeUp();
+    }
+  }, 1000);
+}
+
+function handleTimeUp() {
+  if (gameOver) return;
+  gameOver = true;
+  closeModal();
+  if (rafId) cancelAnimationFrame(rafId);
+  playLose();
+  gamePlay.classList.add('hidden');
+  loseScreen.classList.remove('hidden');
+}
+
+function initElectrons() {
+  arena.querySelectorAll('.electron').forEach(e => e.remove());
+  arena.classList.remove('empty');
+  electrons = QUESTIONS.map((_, i) => {
+    const el = document.createElement('button');
+    el.className = 'electron';
+    el.innerHTML = `<span>e${'⁻'}${i + 1}</span>`;
+    arena.appendChild(el);
+    const bounds = arena.getBoundingClientRect();
+    const size = 52;
+    const maxX = Math.max(bounds.width - size, 10);
+    const maxY = Math.max(bounds.height - size, 10);
+    const obj = {
+      id: i,
+      el,
+      x: Math.random() * maxX,
+      y: Math.random() * maxY,
+      vx: (Math.random() > 0.5 ? 1 : -1) * (0.7 + Math.random() * 0.6),
+      vy: (Math.random() > 0.5 ? 1 : -1) * (0.7 + Math.random() * 0.6),
+      caught: false
+    };
+    el.style.left = obj.x + 'px';
+    el.style.top = obj.y + 'px';
+    el.addEventListener('click', () => openQuestion(i));
+    return obj;
+  });
+}
+
+function animate() {
+  const bounds = arena.getBoundingClientRect();
+  const size = 52;
+  const maxX = Math.max(bounds.width - size, 10);
+  const maxY = Math.max(bounds.height - size, 10);
+
+  electrons.forEach(obj => {
+    if (obj.caught) return;
+    obj.x += obj.vx;
+    obj.y += obj.vy;
+    if (obj.x <= 0 || obj.x >= maxX) { obj.vx *= -1; obj.x = Math.max(0, Math.min(obj.x, maxX)); }
+    if (obj.y <= 0 || obj.y >= maxY) { obj.vy *= -1; obj.y = Math.max(0, Math.min(obj.y, maxY)); }
+    obj.el.style.left = obj.x + 'px';
+    obj.el.style.top = obj.y + 'px';
+  });
+
+  rafId = requestAnimationFrame(animate);
+}
+
+function openQuestion(i) {
+  if (gameOver || electrons[i].caught) return;
+  activeIndex = i;
+  pendingCorrect = false;
+  const item = QUESTIONS[i];
+
+  modalCat.textContent = item.cat;
+  modalQ.textContent = item.q;
+  modalFeedback.textContent = '';
+  modalFeedback.className = 'modal-feedback';
+  modalNext.classList.remove('show');
+  modalChoices.innerHTML = '';
+
+  const letters = ['A', 'B', 'C', 'D'];
+  item.choices.forEach((text, ci) => {
+    const b = document.createElement('button');
+    b.className = 'modal-choice';
+    b.innerHTML = `<span class="letter">${letters[ci]}</span><span>${text}</span>`;
+    b.addEventListener('click', () => answerQuestion(ci, b, item));
+    modalChoices.appendChild(b);
+  });
+
+  modalBackdrop.classList.add('show');
+}
+
+function answerQuestion(idx, btnEl, item) {
+  if (pendingCorrect) return;
+  const allBtns = modalChoices.querySelectorAll('.modal-choice');
+  allBtns.forEach(b => b.disabled = true);
+
+  if (idx === item.answer) {
+    btnEl.classList.add('correct');
+    modalFeedback.textContent = 'Chính xác! Electron sẵn sàng bị thu phục.';
+    modalFeedback.classList.add('ok');
+    pendingCorrect = true;
+    modalNext.classList.add('show');
+    playCorrect();
+  } else {
+    btnEl.classList.add('wrong');
+    allBtns[item.answer].classList.add('correct');
+    modalFeedback.textContent = 'Chưa đúng. Đóng lại và thử bắt electron này lần nữa.';
+    modalFeedback.classList.add('bad');
+    playWrong();
+  }
+}
+
+function closeModal() {
+  modalBackdrop.classList.remove('show');
+  activeIndex = null;
+  pendingCorrect = false;
+}
+
+function collectPiece() {
+  if (activeIndex === null || !pendingCorrect) return;
+  const i = activeIndex;
+  const obj = electrons[i];
+  obj.caught = true;
+  obj.el.classList.add('caught');
+  setTimeout(() => obj.el.remove(), 400);
+
+  const cover = puzzleWrap.querySelector(`.piece-cover[data-piece="${i}"]`);
+  if (cover) cover.classList.add('revealed');
+
+  piecesCollected++;
+  puzzleCaption.textContent = `Mảnh ghép: ${piecesCollected} / ${QUESTIONS.length}`;
+
+  closeModal();
+
+  const remaining = electrons.filter(e => !e.caught).length;
+  if (remaining === 0) {
+    arena.classList.add('empty');
+    statusText.textContent = 'Đã thu phục hết electron!';
+    setTimeout(showWin, 500);
+  } else {
+    statusText.textContent = `Còn ${remaining} electron đang chạy trốn.`;
+  }
+}
+
+function showWin() {
+  gameOver = true;
+  clearInterval(timerId);
+  if (rafId) cancelAnimationFrame(rafId);
+  playWin();
+  gamePlay.classList.add('hidden');
+  winScreen.classList.remove('hidden');
+}
+
+function restartGame() {
+  gameOver = false;
+  piecesCollected = 0;
+  puzzleCaption.textContent = `Mảnh ghép: 0 / ${QUESTIONS.length}`;
+  puzzleWrap.querySelectorAll('.piece-cover').forEach(c => c.classList.remove('revealed'));
+  winScreen.classList.add('hidden');
+  loseScreen.classList.add('hidden');
+  gamePlay.classList.remove('hidden');
+  statusText.textContent = 'Chạm vào một electron để bắt đầu câu hỏi.';
+  if (rafId) cancelAnimationFrame(rafId);
+  initElectrons();
+  animate();
+  startTimer();
+}
+
+modalClose.addEventListener('click', closeModal);
+modalNext.addEventListener('click', collectPiece);
+replayBtn.addEventListener('click', restartGame);
+replayBtnLose.addEventListener('click', restartGame);
+
+initElectrons();
+animate();
+startTimer();
+</script>
+</body>
+</html>
